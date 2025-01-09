@@ -11,6 +11,7 @@ let gameCreaterId = null;
 let gameStarted = false;
 let players = [];
 let locations = [];
+let selectedLocation = null;
 let spy = null;
 
 module.exports = {
@@ -51,6 +52,7 @@ module.exports = {
       gameCreated = true;
       gameCreaterId = interaction.user.id;
       gameStarted = false;
+      selectedLocation = null;
       spy = null;
 
       const row = new ActionRowBuilder().addComponents(
@@ -137,11 +139,11 @@ module.exports = {
           spy = players[Math.floor(Math.random() * players.length)];
 
           shuffleArray(locations);
-          const pickedLocation = locations[locations.length - 1];
-          locations.pop();
+          selectedLocation = locations[locations.length - 1];
+          locations.pop(); // Remove the selected location from the list
 
           for (const player of players) {
-            if (player.id !== spy.id) player.location = pickedLocation;
+            if (player.id !== spy.id) player.location = selectedLocation;
           }
 
           gameStarted = true;
@@ -151,7 +153,7 @@ module.exports = {
         } else if (i.customId === "end_game") {
           gameStarted = false;
           players = [];
-          locations = [];
+          selectedLocation = null;
           spy = null;
 
           await i.reply({
@@ -195,8 +197,10 @@ module.exports = {
             return;
           }
 
+          const allLocations = [...locations, selectedLocation];
+
           await i.reply({
-            content: `Locations in the game: ${locations.join(", ")}`,
+            content: `Locations in the game: ${allLocations.join(", ")}`,
             flags: MessageFlags.Ephemeral,
           });
         }
