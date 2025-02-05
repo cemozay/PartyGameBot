@@ -3,7 +3,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  MessageFlags,
+  EmbedBuilder,
 } = require("discord.js");
 
 let gameCreated = false;
@@ -13,6 +13,7 @@ let players = [];
 let locations = [];
 let selectedLocation = null;
 let spy = null;
+let message = null;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,7 +27,7 @@ module.exports = {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("add")
-        .setDescription("Add an location to the game.")
+        .setDescription("Add a location to the game.")
         .addStringOption((option) =>
           option
             .setName("location")
@@ -40,11 +41,10 @@ module.exports = {
 
     if (subcommand === "create") {
       if (gameCreated) {
-        await interaction.reply({
+        return interaction.reply({
           content: "A game is already created!",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
-        return;
       }
 
       players = [];
@@ -61,37 +61,48 @@ module.exports = {
           .setLabel("Join the Game")
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-          .setCustomId("start_game")
-          .setLabel("Start the Game")
-          .setStyle(ButtonStyle.Success)
-          .setDisabled(interaction.user.id !== gameCreaterId),
-        new ButtonBuilder()
-          .setCustomId("end_game")
-          .setLabel("End the Game")
-          .setStyle(ButtonStyle.Danger)
-          .setDisabled(interaction.user.id !== gameCreaterId),
+          .setCustomId("leave_game")
+          .setLabel("Leave the Game")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
         new ButtonBuilder()
           .setCustomId("reveal_yourself")
           .setLabel("Reveal Yourself")
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId("show_locations")
-          .setLabel("Show Locations")
           .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId("start_game")
+          .setLabel("Start the Game")
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId("end_game")
+          .setLabel("End this Round")
+          .setStyle(ButtonStyle.Danger)
+          .setDisabled(true)
       );
 
-      await interaction.reply({
-        content: "Welcome to Spyfall! Choose an action:",
+      const embed = new EmbedBuilder()
+        .setTitle("Spyfall Game")
+        .setDescription(
+          "**Participants:** None yet!\n**Participants Count:** 0\n**Locations:** No locations yet!"
+        )
+        .setColor(0x1abc9c)
+        .setFooter({ text: "Party Games Bot" });
+
+      message = await interaction.reply({
+        embeds: [embed],
         components: [row],
+        fetchReply: true,
       });
 
       const filter = (i) =>
         [
           "join_game",
+          "leave_game",
           "start_game",
           "end_game",
           "reveal_yourself",
-          "show_locations",
         ].includes(i.customId);
 
       const collector = interaction.channel.createMessageComponentCollector({
@@ -101,146 +112,290 @@ module.exports = {
       collector.on("collect", async (i) => {
         if (i.customId === "join_game") {
           if (gameStarted) {
-            await i.reply({
+            return i.reply({
               content: "The game has already started!",
-              flags: MessageFlags.Ephemeral,
+              ephemeral: true,
             });
-            return;
           }
 
           if (!players.some((player) => player.id === i.user.id)) {
             players.push({ id: i.user.id, username: i.user.username });
-            await i.reply({
+            const participants =
+              players.map((p) => p.username).join("\n") || "None yet!";
+            const participantsCount = players.length;
+
+            const updatedEmbed = new EmbedBuilder().setDescription(
+              `**Participants:**\n${participants}\n**Participants Count:** ${participantsCount}\n**Locations:**\n${
+                locations.length > 0
+                  ? locations.join("\n")
+                  : "No locations yet!"
+              }`
+            );
+
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId("join_game")
+                .setLabel("Join the Game")
+                .setStyle(ButtonStyle.Primary)
+                .setDisabled(true),
+              new ButtonBuilder()
+                .setCustomId("leave_game")
+                .setLabel("Leave the Game")
+                .setStyle(ButtonStyle.Secondary),
+              new ButtonBuilder()
+                .setCustomId("reveal_yourself")
+                .setLabel("Reveal Yourself")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(false),
+              new ButtonBuilder()
+                .setCustomId("start_game")
+                .setLabel("Start the Game")
+                .setStyle(ButtonStyle.Success)
+                .setDisabled(i.user.id !== gameCreaterId),
+              new ButtonBuilder()
+                .setCustomId("end_game")
+                .setLabel("End this Round")
+                .setStyle(ButtonStyle.Danger)
+                .setDisabled(i.user.id !== gameCreaterId)
+            );
+
+            await message.edit({ embeds: [updatedEmbed], components: [row] });
+            return i.reply({
               content: "You have joined the game!",
-              flags: MessageFlags.Ephemeral,
-            });
-          } else {
-            await i.reply({
-              content: "You have already joined the game!",
-              flags: MessageFlags.Ephemeral,
+              ephemeral: true,
             });
           }
-        } else if (i.customId === "start_game") {
+
+          return i.reply({
+            content: "You have already joined the game!",
+            ephemeral: true,
+          });
+        }
+
+        if (i.customId === "leave_game") {
           if (gameStarted) {
-            await i.reply({
+            return i.reply({
               content: "The game has already started!",
-              flags: MessageFlags.Ephemeral,
+              ephemeral: true,
             });
-            return;
           }
-          if (players.length < 3) {
-            await i.reply({
-              content: "You need at least 3 players to start the game!",
-              flags: MessageFlags.Ephemeral,
+
+          const playerIndex = players.findIndex(
+            (player) => player.id === i.user.id
+          );
+          if (playerIndex !== -1) {
+            players.splice(playerIndex, 1);
+            const participants =
+              players.map((p) => p.username).join("\n") || "None yet!";
+            const participantsCount = players.length;
+
+            const updatedEmbed = new EmbedBuilder().setDescription(
+              `**Participants:**\n${participants}\n**Participants Count:** ${participantsCount}\n**Locations:**\n${
+                locations.length > 0
+                  ? locations.join("\n")
+                  : "No locations yet!"
+              }`
+            );
+
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId("join_game")
+                .setLabel("Join the Game")
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId("leave_game")
+                .setLabel("Leave the Game")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+              new ButtonBuilder()
+                .setCustomId("reveal_yourself")
+                .setLabel("Reveal Yourself")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true),
+              new ButtonBuilder()
+                .setCustomId("start_game")
+                .setLabel("Start the Game")
+                .setStyle(ButtonStyle.Success)
+                .setDisabled(i.user.id !== gameCreaterId), // Only the creator can start the game
+              new ButtonBuilder()
+                .setCustomId("end_game")
+                .setLabel("End this Round")
+                .setStyle(ButtonStyle.Danger)
+                .setDisabled(i.user.id !== gameCreaterId) // Only the creator can end the game
+            );
+
+            await message.edit({ embeds: [updatedEmbed], components: [row] });
+            return i.reply({
+              content: "You have left the game!",
+              ephemeral: true,
             });
-            return;
+          }
+
+          return i.reply({
+            content: "You are not in the game!",
+            ephemeral: true,
+          });
+        }
+
+        if (i.customId === "start_game") {
+          if (gameStarted) {
+            return i.reply({
+              content: "The game has already started!",
+              ephemeral: true,
+            });
+          }
+
+          if (players.length < 3) {
+            return i.reply({
+              content: "You need at least 3 players to start the game!",
+              ephemeral: true,
+            });
           }
 
           spy = players[Math.floor(Math.random() * players.length)];
 
           shuffleArray(locations);
-          selectedLocation = locations[locations.length - 1];
-          locations.pop(); // Remove the selected location from the list
+          selectedLocation = locations.pop();
 
           for (const player of players) {
             if (player.id !== spy.id) player.location = selectedLocation;
           }
 
           gameStarted = true;
-          await i.reply({
-            content: "The game has started! Good luck!",
-          });
-        } else if (i.customId === "end_game") {
-          gameStarted = false;
-          players = [];
-          selectedLocation = null;
-          spy = null;
 
-          await i.reply({
-            content: "The game has ended!",
+          const updatedEmbed = new EmbedBuilder()
+            .setTitle("Spyfall Game Started!")
+            .setDescription(
+              `The game has started! Good luck!\n\n**Location:** ${selectedLocation}`
+            )
+            .setColor(0x1abc9c);
+
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId("join_game")
+              .setLabel("Join the Game")
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId("leave_game")
+              .setLabel("Leave the Game")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId("reveal_yourself")
+              .setLabel("Reveal Yourself")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(false),
+            new ButtonBuilder()
+              .setCustomId("start_game")
+              .setLabel("Start the Game")
+              .setStyle(ButtonStyle.Success)
+              .setDisabled(true),
+            new ButtonBuilder()
+              .setCustomId("end_game")
+              .setLabel("End this Round")
+              .setStyle(ButtonStyle.Danger)
+              .setDisabled(false)
+          );
+
+          await message.edit({ embeds: [updatedEmbed], components: [row] });
+          return i.reply({
+            content: "The game has started! Good luck!",
+            ephemeral: true,
           });
-        } else if (i.customId === "reveal_yourself") {
+        }
+
+        if (i.customId === "end_game") {
+          return i.reply({
+            content:
+              "The round has ended! The game continues, start a new round!",
+            ephemeral: true,
+          });
+        }
+
+        if (i.customId === "reveal_yourself") {
           if (!gameStarted) {
-            await i.reply({
+            return i.reply({
               content: "The game has not started yet!",
-              flags: MessageFlags.Ephemeral,
+              ephemeral: true,
             });
-            return;
           }
 
           const player = players.find((player) => player.id === i.user.id);
-
           if (player) {
-            if (player.id === spy.id) {
-              await i.reply({
-                content: "You are the spy!",
-                flags: MessageFlags.Ephemeral,
+            const embed = new EmbedBuilder()
+              .setTitle(
+                player.id === spy.id ? "Spy Revealed!" : "Your Location"
+              )
+              .setDescription(
+                player.id === spy.id
+                  ? "You are the **Spy**! 🕵️‍♂️ Your goal is to guess the location."
+                  : `You are at the location: **${player.location}**`
+              )
+              .setColor(player.id === spy.id ? 0xe74c3c : 0x2ecc71)
+              .setFooter({
+                text:
+                  player.id === spy.id
+                    ? "Good luck, Spy!"
+                    : "Keep the Spy guessing!",
               });
-            } else {
-              await i.reply({
-                content: `You are at the ${player.location}!`,
-                flags: MessageFlags.Ephemeral,
-              });
-            }
-          } else {
-            await i.reply({
-              content: "You are not in the game!",
-              flags: MessageFlags.Ephemeral,
+
+            return i.reply({
+              embeds: [embed],
+              ephemeral: true,
             });
           }
-        } else if (i.customId === "show_locations") {
-          if (locations.length === 0) {
-            await i.reply({
-              content: "No locations have been added to the game!",
-              flags: MessageFlags.Ephemeral,
-            });
-            return;
-          }
 
-          const allLocations = [...locations, selectedLocation];
-
-          await i.reply({
-            content: `Locations in the game: ${allLocations.join(", ")}`,
-            flags: MessageFlags.Ephemeral,
+          return i.reply({
+            content: "You are not in the game!",
+            ephemeral: true,
           });
         }
       });
     } else if (subcommand === "add") {
       if (!gameCreated) {
-        await interaction.reply({
+        return interaction.reply({
           content:
             "No game is currently in progress. Create one with `/spyfall create`.",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
-        return;
       }
 
       const location = interaction.options
         .getString("location")
         .trim()
         .toLowerCase();
-
       if (!location) {
-        await interaction.reply({
+        return interaction.reply({
           content: "Location cannot be empty or just spaces.",
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
-        return;
       }
 
       if (locations.includes(location)) {
-        await interaction.reply({
+        return interaction.reply({
           content: `"${location}" is already in the game!`,
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
-        return;
       }
 
       locations.push(location);
 
-      await interaction.reply({
-        content: `Added "${location}" to the game!`,
-        flags: MessageFlags.Ephemeral,
+      const updatedEmbed = new EmbedBuilder().setDescription(
+        `**Participants:**\n${
+          players.map((p) => p.username).join("\n") || "None yet!"
+        }\n**Participants Count:** ${
+          players.length
+        }\n**Locations:**\n${locations
+          .map((loc, index) => `${index + 1}. ${loc}`)
+          .join("\n")}`
+      );
+
+      await message.edit({ embeds: [updatedEmbed] });
+
+      return interaction.reply({
+        content: `"${location}" has been added to the game!`,
+        ephemeral: true,
       });
     }
   },
